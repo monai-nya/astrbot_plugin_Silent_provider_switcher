@@ -1,4 +1,4 @@
-﻿{
+{
   "enabled": {
     "type": "bool",
     "description": "���� LLM ����ʱ�ľ�Ĭ�л���",
