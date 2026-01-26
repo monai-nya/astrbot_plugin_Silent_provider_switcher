@@ -1,91 +1,91 @@
 {
   "enabled": {
     "type": "bool",
-    "description": "���� LLM ����ʱ�ľ�Ĭ�л���",
+    "description": "启用 LLM 出错时的静默切换",
     "default": true
   },
   "fallback_provider_id_1": {
     "type": "string",
-    "description": "�����ṩ�� 1 ������ʽѡ�񣩡�",
+    "description": "备用提供商 1（交互式选择）",
     "_special": "select_provider",
     "default": ""
   },
   "fallback_base_url_1": {
     "type": "string",
-    "description": "�����ṩ�� 1 �� base_url���ɲ����",
+    "description": "备用提供商 1 的 base_url（可不填）",
     "default": ""
   },
   "fallback_api_key_1": {
     "type": "string",
-    "description": "�����ṩ�� 1 �� api_key���ɲ����",
+    "description": "备用提供商 1 的 api_key（可不填）",
     "default": ""
   },
   "fallback_model_1": {
     "type": "string",
-    "description": "�����ṩ�� 1 ��ģ�͸��ǣ��ɲ����",
+    "description": "备用提供商 1 的模型覆盖（可不填）",
     "default": ""
   },
   "fallback_provider_id_2": {
     "type": "string",
-    "description": "�����ṩ�� 2 ������ʽѡ�񣩡�",
+    "description": "备用提供商 2（交互式选择）",
     "_special": "select_provider",
     "default": ""
   },
   "fallback_base_url_2": {
     "type": "string",
-    "description": "�����ṩ�� 2 �� base_url���ɲ����",
+    "description": "备用提供商 2 的 base_url（可不填）",
     "default": ""
   },
   "fallback_api_key_2": {
     "type": "string",
-    "description": "�����ṩ�� 2 �� api_key���ɲ����",
+    "description": "备用提供商 2 的 api_key（可不填）",
     "default": ""
   },
   "fallback_model_2": {
     "type": "string",
-    "description": "�����ṩ�� 2 ��ģ�͸��ǣ��ɲ����",
+    "description": "备用提供商 2 的模型覆盖（可不填）",
     "default": ""
   },
   "fallback_provider_id_3": {
     "type": "string",
-    "description": "�����ṩ�� 3 ������ʽѡ�񣩡�",
+    "description": "备用提供商 3（交互式选择）",
     "_special": "select_provider",
     "default": ""
   },
   "fallback_base_url_3": {
     "type": "string",
-    "description": "�����ṩ�� 3 �� base_url���ɲ����",
+    "description": "备用提供商 3 的 base_url（可不填）",
     "default": ""
   },
   "fallback_api_key_3": {
     "type": "string",
-    "description": "�����ṩ�� 3 �� api_key���ɲ����",
+    "description": "备用提供商 3 的 api_key（可不填）",
     "default": ""
   },
   "fallback_model_3": {
     "type": "string",
-    "description": "�����ṩ�� 3 ��ģ�͸��ǣ��ɲ����",
+    "description": "备用提供商 3 的模型覆盖（可不填）",
     "default": ""
   },
   "fallback_provider_id": {
     "type": "string",
-    "description": "�ɰ浥һ�����ṩ�� ID���ɱ������",
+    "description": "旧版单一备用提供商 ID（可保留）",
     "_special": "select_provider",
     "default": ""
   },
   "fallback_model": {
     "type": "string",
-    "description": "�ɰ浥һ�����ṩ�̵�ģ�͸��ǣ��ɲ����",
+    "description": "旧版单一备用提供商的模型覆盖（可不填）",
     "default": ""
   },
   "error_keywords": {
     "type": "text",
-    "description": "������Ϊʧ�ܵĹؼ��ʣ�ÿ��һ������Сд����У���",
+    "description": "额外视为失败的关键词（每行一个，大小写不敏感）",
     "default": ""
   },
   "log_switch": {
     "type": "bool",
-    "description": "�����л�ʱ��¼��־��",
+    "description": "发生切换时记录日志",
     "default": true
   }
 }
