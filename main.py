@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from astrbot.api import AstrBotConfig, logger
@@ -57,54 +56,31 @@ class SilentProviderSwitcher(Star):
     def _should_log_switch(self) -> bool:
         return bool(self.config.get("log_switch", True))
 
-    def _parse_fallback_providers(self) -> List[Dict[str, str]]:
-        raw = str(self.config.get("fallback_providers", "")).strip()
-        if not raw:
+    def _get_fallback_entries(self) -> List[Dict[str, str]]:
+        entries: List[Dict[str, str]] = []
+        for idx in range(1, 4):
+            provider_id = str(
+                self.config.get(f"fallback_provider_id_{idx}", "")
+            ).strip()
+            if not provider_id:
+                continue
+            entries.append(
+                {
+                    "provider_id": provider_id,
+                    "base_url": str(
+                        self.config.get(f"fallback_base_url_{idx}", "")
+                    ).strip(),
+                    "api_key": str(
+                        self.config.get(f"fallback_api_key_{idx}", "")
+                    ).strip(),
+                    "model": str(self.config.get(f"fallback_model_{idx}", "")).strip(),
+                }
+            )
+        if not entries:
             fallback_id = self._get_fallback_provider_id()
-            if not fallback_id:
-                return []
-            return [{"provider_id": fallback_id}]
-        try:
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                data = [data]
-            items: List[Dict[str, str]] = []
-            if isinstance(data, list):
-                for item in data:
-                    if not isinstance(item, dict):
-                        continue
-                    provider_id = str(item.get("provider_id", "")).strip()
-                    if not provider_id:
-                        continue
-                    items.append(
-                        {
-                            "provider_id": provider_id,
-                            "base_url": str(item.get("base_url", "")).strip(),
-                            "api_key": str(item.get("api_key", "")).strip(),
-                            "model": str(item.get("model", "")).strip(),
-                        }
-                    )
-            return items
-        except Exception:
-            items = []
-            for line in raw.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                parts = [p.strip() for p in line.split("|")]
-                while len(parts) < 4:
-                    parts.append("")
-                provider_id, base_url, api_key, model = parts[:4]
-                if provider_id:
-                    items.append(
-                        {
-                            "provider_id": provider_id,
-                            "base_url": base_url,
-                            "api_key": api_key,
-                            "model": model,
-                        }
-                    )
-            return items
+            if fallback_id:
+                entries.append({"provider_id": fallback_id})
+        return entries
 
     def _make_key(self, event: AstrMessageEvent) -> int:
         return id(event)
@@ -193,7 +169,7 @@ class SilentProviderSwitcher(Star):
                         cfg[key] = old
 
     async def _call_fallback(self, snapshot: _RequestSnapshot) -> Optional[LLMResponse]:
-        fallbacks = self._parse_fallback_providers()
+        fallbacks = self._get_fallback_entries()
         if not fallbacks:
             return None
         for entry in fallbacks:
@@ -241,7 +217,7 @@ class SilentProviderSwitcher(Star):
     async def capture_request(self, event: AstrMessageEvent, req: ProviderRequest):
         if not self._is_enabled():
             return
-        if not self._parse_fallback_providers():
+        if not self._get_fallback_entries():
             return
         key = self._make_key(event)
         snapshot = _RequestSnapshot(

@@ -1,33 +1,91 @@
-{
+﻿{
   "enabled": {
     "type": "bool",
-    "description": "启用 LLM 出错时的静默切换。",
+    "description": "���� LLM ����ʱ�ľ�Ĭ�л���",
     "default": true
   },
-  "fallback_providers": {
-    "type": "text",
-    "description": "备用提供商列表（JSON 数组或每行一条，格式：provider_id|base_url|api_key|model）。",
+  "fallback_provider_id_1": {
+    "type": "string",
+    "description": "�����ṩ�� 1 ������ʽѡ�񣩡�",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "fallback_base_url_1": {
+    "type": "string",
+    "description": "�����ṩ�� 1 �� base_url���ɲ����",
+    "default": ""
+  },
+  "fallback_api_key_1": {
+    "type": "string",
+    "description": "�����ṩ�� 1 �� api_key���ɲ����",
+    "default": ""
+  },
+  "fallback_model_1": {
+    "type": "string",
+    "description": "�����ṩ�� 1 ��ģ�͸��ǣ��ɲ����",
+    "default": ""
+  },
+  "fallback_provider_id_2": {
+    "type": "string",
+    "description": "�����ṩ�� 2 ������ʽѡ�񣩡�",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "fallback_base_url_2": {
+    "type": "string",
+    "description": "�����ṩ�� 2 �� base_url���ɲ����",
+    "default": ""
+  },
+  "fallback_api_key_2": {
+    "type": "string",
+    "description": "�����ṩ�� 2 �� api_key���ɲ����",
+    "default": ""
+  },
+  "fallback_model_2": {
+    "type": "string",
+    "description": "�����ṩ�� 2 ��ģ�͸��ǣ��ɲ����",
+    "default": ""
+  },
+  "fallback_provider_id_3": {
+    "type": "string",
+    "description": "�����ṩ�� 3 ������ʽѡ�񣩡�",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "fallback_base_url_3": {
+    "type": "string",
+    "description": "�����ṩ�� 3 �� base_url���ɲ����",
+    "default": ""
+  },
+  "fallback_api_key_3": {
+    "type": "string",
+    "description": "�����ṩ�� 3 �� api_key���ɲ����",
+    "default": ""
+  },
+  "fallback_model_3": {
+    "type": "string",
+    "description": "�����ṩ�� 3 ��ģ�͸��ǣ��ɲ����",
     "default": ""
   },
   "fallback_provider_id": {
     "type": "string",
-    "description": "旧版单一备用提供商 ID（可保留）。",
+    "description": "�ɰ浥һ�����ṩ�� ID���ɱ������",
     "_special": "select_provider",
     "default": ""
   },
   "fallback_model": {
     "type": "string",
-    "description": "备用提供商的可选模型覆盖。",
+    "description": "�ɰ浥һ�����ṩ�̵�ģ�͸��ǣ��ɲ����",
     "default": ""
   },
   "error_keywords": {
     "type": "text",
-    "description": "额外视为失败的关键词（每行一个，大小写不敏感）。",
+    "description": "������Ϊʧ�ܵĹؼ��ʣ�ÿ��һ������Сд����У���",
     "default": ""
   },
   "log_switch": {
     "type": "bool",
-    "description": "发生切换时记录日志。",
+    "description": "�����л�ʱ��¼��־��",
     "default": true
   }
 }
