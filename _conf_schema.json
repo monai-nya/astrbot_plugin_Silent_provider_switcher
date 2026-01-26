@@ -1,0 +1,28 @@
+{
+  "enabled": {
+    "type": "bool",
+    "description": "Enable silent fallback for LLM errors.",
+    "default": true
+  },
+  "fallback_provider_id": {
+    "type": "string",
+    "description": "Backup LLM provider ID used when the current provider fails.",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "fallback_model": {
+    "type": "string",
+    "description": "Optional model override for the backup provider.",
+    "default": ""
+  },
+  "error_keywords": {
+    "type": "text",
+    "description": "Extra keywords to treat as failures (one per line, case-insensitive).",
+    "default": ""
+  },
+  "log_switch": {
+    "type": "bool",
+    "description": "Log a message when a fallback happens.",
+    "default": true
+  }
+}
