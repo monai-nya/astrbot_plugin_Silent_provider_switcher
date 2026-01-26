@@ -1,28 +1,33 @@
 {
   "enabled": {
     "type": "bool",
-    "description": "Enable silent fallback for LLM errors.",
+    "description": "启用 LLM 出错时的静默切换。",
     "default": true
+  },
+  "fallback_providers": {
+    "type": "text",
+    "description": "备用提供商列表（JSON 数组或每行一条，格式：provider_id|base_url|api_key|model）。",
+    "default": ""
   },
   "fallback_provider_id": {
     "type": "string",
-    "description": "Backup LLM provider ID used when the current provider fails.",
+    "description": "旧版单一备用提供商 ID（可保留）。",
     "_special": "select_provider",
     "default": ""
   },
   "fallback_model": {
     "type": "string",
-    "description": "Optional model override for the backup provider.",
+    "description": "备用提供商的可选模型覆盖。",
     "default": ""
   },
   "error_keywords": {
     "type": "text",
-    "description": "Extra keywords to treat as failures (one per line, case-insensitive).",
+    "description": "额外视为失败的关键词（每行一个，大小写不敏感）。",
     "default": ""
   },
   "log_switch": {
     "type": "bool",
-    "description": "Log a message when a fallback happens.",
+    "description": "发生切换时记录日志。",
     "default": true
   }
 }
