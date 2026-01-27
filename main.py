@@ -119,6 +119,16 @@ class SilentProviderSwitcher(Star):
         ):
             if hasattr(source, attr):
                 setattr(target, attr, getattr(source, attr))
+        for attr in (
+            "error",
+            "err",
+            "error_msg",
+            "error_message",
+            "exception",
+            "traceback",
+        ):
+            if hasattr(target, attr):
+                setattr(target, attr, None)
 
     def _apply_provider_overrides(
         self,
