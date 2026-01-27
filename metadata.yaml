@@ -2,5 +2,5 @@ name: silent_provider_switcher
 display_name: 静默提供商切换器
 desc: 在 LLM 出错时静默切换到备用提供商。
 version: v1.0.0
-author: YourName
-repo: ""
+author: 洛曦
+repo: "silent_provider_switcher"
