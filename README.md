@@ -6,10 +6,12 @@
 - 捕获每一次 LLM 请求。
 - 当响应为错误或命中指定关键词时，使用备用提供商重试。
 - 用备用结果替换失败响应。
+- 支持失败冷却：主提供商出错后在冷却期内会被跳过。
 
 ## 配置项
 在 AstrBot 插件设置中配置：
 - enabled：是否启用静默切换。
+- cooldown_seconds：提供商失败后的冷却时间（秒），冷却期内会被跳过，0 表示不启用。
 - fallback_provider_id_1/2/3：交互式选择的备用提供商。
 - fallback_base_url_1/2/3：对应备用提供商的 base_url（可不填）。
 - fallback_api_key_1/2/3：对应备用提供商的 api_key（可不填）。
@@ -27,3 +29,4 @@
 ## 示例
 - 选择备用提供商 1/2/3，分别填写各自的 base_url 和 api_key。
 - 若只需要一个备用提供商，仅配置 fallback_provider_id_1 即可。
+- 若主提供商经常失败，可设置 cooldown_seconds=300（5分钟）减少等待。

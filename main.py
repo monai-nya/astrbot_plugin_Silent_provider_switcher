@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import types
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, Iterable, List, Optional
@@ -34,6 +35,7 @@ class SilentProviderSwitcher(Star):
         super().__init__(context)
         self.config = config
         self._wrapped: set[int] = set()
+        self._cooldowns: Dict[str, float] = {}
 
     async def initialize(self):
         self._install_provider_failover()
@@ -47,6 +49,39 @@ class SilentProviderSwitcher(Star):
 
     def _should_log_switch(self) -> bool:
         return bool(self.config.get("log_switch", True))
+
+    def _get_cooldown_seconds(self) -> int:
+        raw = self.config.get("cooldown_seconds", 0)
+        try:
+            value = int(raw)
+        except Exception:
+            value = 0
+        return max(value, 0)
+
+    def _now(self) -> float:
+        return time.monotonic()
+
+    def _is_in_cooldown(self, provider_id: str) -> bool:
+        if not provider_id or provider_id == "unknown":
+            return False
+        cooldown = self._get_cooldown_seconds()
+        if cooldown <= 0:
+            return False
+        ts = self._cooldowns.get(provider_id)
+        if ts is None:
+            return False
+        if self._now() - ts < cooldown:
+            return True
+        self._cooldowns.pop(provider_id, None)
+        return False
+
+    def _mark_cooldown(self, provider_id: str) -> None:
+        if not provider_id or provider_id == "unknown":
+            return
+        cooldown = self._get_cooldown_seconds()
+        if cooldown <= 0:
+            return
+        self._cooldowns[provider_id] = self._now()
 
     def _get_error_keywords(self) -> Iterable[str]:
         raw = str(self.config.get("error_keywords", "")).strip()
@@ -268,13 +303,19 @@ class SilentProviderSwitcher(Star):
                         cfg[key] = old
 
     def _build_failover_plan(self, primary: Any):
-        plan = [(primary, None, True)] if primary else []
+        plan = []
+        if primary:
+            primary_id = self._get_provider_id(primary)
+            if not self._is_in_cooldown(primary_id):
+                plan.append((primary, None, True))
         entries = self._get_fallback_entries()
         if not entries:
-            return plan
+            return plan or ([(primary, None, True)] if primary else [])
 
         providers = {self._get_provider_id(p): p for p in self._get_all_chat_providers()}
         for entry in entries:
+            if self._is_in_cooldown(entry.provider_id):
+                continue
             provider = providers.get(entry.provider_id)
             if provider is None and hasattr(self.context, "get_provider_by_id"):
                 try:
@@ -289,6 +330,8 @@ class SilentProviderSwitcher(Star):
             if provider is primary and not (entry.base_url or entry.api_key or entry.model):
                 continue
             plan.append((provider, entry, False))
+        if not plan and primary:
+            plan = [(primary, None, True)]
         return plan
 
     def _install_provider_failover(self):
@@ -361,6 +404,7 @@ class SilentProviderSwitcher(Star):
             try:
                 result = await original_call(*args, **call_kwargs)
                 if self._is_error_response(result) or self._matches_error_keywords(result):
+                    self._mark_cooldown(provider_id)
                     if index < len(plan) - 1:
                         errors.append((provider_id, RuntimeError("LLM error response")))
                         continue
@@ -372,9 +416,11 @@ class SilentProviderSwitcher(Star):
                     )
                 return result
             except Exception as exc:
-                if self._should_failover_exception(exc) and index < len(plan) - 1:
-                    errors.append((provider_id, exc))
-                    continue
+                if self._should_failover_exception(exc):
+                    self._mark_cooldown(provider_id)
+                    if index < len(plan) - 1:
+                        errors.append((provider_id, exc))
+                        continue
                 raise
             finally:
                 self._restore_provider_overrides(provider, restores)
@@ -437,9 +483,11 @@ class SilentProviderSwitcher(Star):
             except Exception as exc:
                 if emitted:
                     raise
-                if self._should_failover_exception(exc) and index < len(plan) - 1:
-                    errors.append((provider_id, exc))
-                    continue
+                if self._should_failover_exception(exc):
+                    self._mark_cooldown(provider_id)
+                    if index < len(plan) - 1:
+                        errors.append((provider_id, exc))
+                        continue
                 raise
             finally:
                 self._restore_provider_overrides(provider, restores)
