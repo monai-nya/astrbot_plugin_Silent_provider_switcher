@@ -119,16 +119,29 @@ class SilentProviderSwitcher(Star):
         ):
             if hasattr(source, attr):
                 setattr(target, attr, getattr(source, attr))
-        for attr in (
-            "error",
-            "err",
-            "error_msg",
-            "error_message",
-            "exception",
-            "traceback",
-        ):
-            if hasattr(target, attr):
-                setattr(target, attr, None)
+        self._clear_error_state(target)
+
+    def _clear_error_state(self, obj: Any) -> None:
+        reset_map = {
+            "error": None,
+            "err": None,
+            "error_msg": None,
+            "error_message": None,
+            "exception": None,
+            "traceback": None,
+            "status": "ok",
+            "status_code": 200,
+            "success": True,
+            "ok": True,
+            "is_error": False,
+            "failed": False,
+        }
+        for attr, value in reset_map.items():
+            if hasattr(obj, attr):
+                try:
+                    setattr(obj, attr, value)
+                except Exception:
+                    pass
 
     def _apply_provider_overrides(
         self,
@@ -264,3 +277,4 @@ class SilentProviderSwitcher(Star):
                 getattr(event, "unified_msg_origin", "unknown"),
             )
         self._apply_response(resp, fallback_resp)
+        self._clear_error_state(event)
