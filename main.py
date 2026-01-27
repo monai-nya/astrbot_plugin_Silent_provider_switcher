@@ -13,6 +13,7 @@ try:
     from astrbot.core.provider.entities import ProviderType, LLMResponse
 except Exception:
     from astrbot.api.provider import LLMResponse
+
     ProviderType = None
 
 
@@ -26,7 +27,7 @@ class _FallbackEntry:
 
 @register(
     "silent_provider_switcher",
-    "YourName",
+    "洛曦",
     "在 LLM 出错时静默切换到备用提供商。",
     "1.0.0",
 )
@@ -108,12 +109,8 @@ class SilentProviderSwitcher(Star):
                     base_url=str(
                         self.config.get(f"fallback_base_url_{idx}", "")
                     ).strip(),
-                    api_key=str(
-                        self.config.get(f"fallback_api_key_{idx}", "")
-                    ).strip(),
-                    model=str(
-                        self.config.get(f"fallback_model_{idx}", "")
-                    ).strip(),
+                    api_key=str(self.config.get(f"fallback_api_key_{idx}", "")).strip(),
+                    model=str(self.config.get(f"fallback_model_{idx}", "")).strip(),
                 )
             )
         if not entries:
@@ -312,7 +309,9 @@ class SilentProviderSwitcher(Star):
         if not entries:
             return plan or ([(primary, None, True)] if primary else [])
 
-        providers = {self._get_provider_id(p): p for p in self._get_all_chat_providers()}
+        providers = {
+            self._get_provider_id(p): p for p in self._get_all_chat_providers()
+        }
         for entry in entries:
             if self._is_in_cooldown(entry.provider_id):
                 continue
@@ -327,7 +326,9 @@ class SilentProviderSwitcher(Star):
                     "Fallback provider not found: %s", entry.provider_id
                 )
                 continue
-            if provider is primary and not (entry.base_url or entry.api_key or entry.model):
+            if provider is primary and not (
+                entry.base_url or entry.api_key or entry.model
+            ):
                 continue
             plan.append((provider, entry, False))
         if not plan and primary:
@@ -347,10 +348,14 @@ class SilentProviderSwitcher(Star):
             if not hasattr(provider, "text_chat"):
                 continue
             if not hasattr(provider, "_silent_provider_switcher_original_text_chat"):
-                provider._silent_provider_switcher_original_text_chat = provider.text_chat
+                provider._silent_provider_switcher_original_text_chat = (
+                    provider.text_chat
+                )
             if not getattr(provider, "_silent_provider_switcher_text_wrapped", False):
+
                 async def wrapper(p_self, *args, **kwargs):
                     return await self._execute_with_failover(p_self, *args, **kwargs)
+
                 provider.text_chat = types.MethodType(wrapper, provider)
                 provider._silent_provider_switcher_text_wrapped = True
 
@@ -361,12 +366,16 @@ class SilentProviderSwitcher(Star):
                     provider._silent_provider_switcher_original_text_chat_stream = (
                         provider.text_chat_stream
                     )
-                if not getattr(provider, "_silent_provider_switcher_stream_wrapped", False):
+                if not getattr(
+                    provider, "_silent_provider_switcher_stream_wrapped", False
+                ):
+
                     async def stream_wrapper(p_self, *args, **kwargs):
                         async for chunk in self._execute_stream_with_failover(
                             p_self, *args, **kwargs
                         ):
                             yield chunk
+
                     provider.text_chat_stream = types.MethodType(
                         stream_wrapper, provider
                     )
@@ -416,7 +425,9 @@ class SilentProviderSwitcher(Star):
                 start = self._now()
                 result = await original_call(*args, **call_kwargs)
                 self._log_timing(provider_id, self._now() - start, True)
-                if self._is_error_response(result) or self._matches_error_keywords(result):
+                if self._is_error_response(result) or self._matches_error_keywords(
+                    result
+                ):
                     self._mark_cooldown(provider_id)
                     if index < len(plan) - 1:
                         errors.append((provider_id, RuntimeError("LLM error response")))
