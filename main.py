@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 from typing import Any, Dict, Iterable, List, Optional
 
 from astrbot.api import AstrBotConfig, logger
@@ -33,6 +34,11 @@ class SilentProviderSwitcher(Star):
         self._req_cache: Dict[int, _RequestSnapshot] = {}
         self._wrapped_providers: set[str] = set()
         self._wrapped_provider_objs: set[int] = set()
+        self._wrapped_context_methods: set[str] = set()
+
+    async def initialize(self):
+        self._wrap_context_provider_access()
+        self._wrap_existing_providers()
 
     def _is_enabled(self) -> bool:
         return bool(self.config.get("enabled", True))
@@ -114,6 +120,79 @@ class SilentProviderSwitcher(Star):
                 except Exception:
                     continue
         return None
+
+    def _iter_providers_from_obj(self, obj: Any):
+        if not obj:
+            return
+        if isinstance(obj, dict):
+            for v in obj.values():
+                if v:
+                    yield v
+            return
+        if isinstance(obj, (list, tuple, set)):
+            for v in obj:
+                if v:
+                    yield v
+            return
+        for attr in ("providers", "_providers", "provider_map", "provider_dict"):
+            if hasattr(obj, attr):
+                try:
+                    value = getattr(obj, attr)
+                    yield from self._iter_providers_from_obj(value)
+                except Exception:
+                    pass
+        for method in ("get_all_providers", "list_providers", "get_providers"):
+            if hasattr(obj, method):
+                try:
+                    value = getattr(obj, method)()
+                    yield from self._iter_providers_from_obj(value)
+                except Exception:
+                    pass
+
+    def _wrap_existing_providers(self) -> None:
+        try:
+            for attr in (
+                "providers",
+                "_providers",
+                "provider_manager",
+                "provider_pool",
+                "provider_registry",
+                "llm_providers",
+            ):
+                if hasattr(self.context, attr):
+                    obj = getattr(self.context, attr)
+                    for provider in self._iter_providers_from_obj(obj):
+                        self._ensure_wrapped_provider_instance(provider)
+        except Exception:
+            logger.exception("Failed to wrap existing providers.")
+
+    def _wrap_context_provider_access(self) -> None:
+        for name in ("get_provider_by_id", "get_current_provider", "get_provider"):
+            if not hasattr(self.context, name):
+                continue
+            if name in self._wrapped_context_methods:
+                continue
+            original = getattr(self.context, name)
+            if getattr(original, "_silent_provider_switcher_wrapped", False):
+                self._wrapped_context_methods.add(name)
+                continue
+            if inspect.iscoroutinefunction(original):
+
+                async def wrapped(*args, __orig=original, **kwargs):
+                    res = await __orig(*args, **kwargs)
+                    self._ensure_wrapped_provider_instance(res)
+                    return res
+
+            else:
+
+                def wrapped(*args, __orig=original, **kwargs):
+                    res = __orig(*args, **kwargs)
+                    self._ensure_wrapped_provider_instance(res)
+                    return res
+
+            setattr(wrapped, "_silent_provider_switcher_wrapped", True)
+            setattr(self.context, name, wrapped)
+            self._wrapped_context_methods.add(name)
 
     def _ensure_wrapped_provider(self, provider_id: Optional[str]) -> None:
         if not provider_id:
