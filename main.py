@@ -500,6 +500,122 @@ class SilentProviderSwitcher(Star):
                 return cloned_set
             return obj
 
+    def _peek_function_response_names(self, payload: Any) -> List[str]:
+        names: List[str] = []
+        try:
+            if isinstance(payload, dict):
+                contents = payload.get("contents")
+                if isinstance(contents, list):
+                    for content in contents:
+                        if not isinstance(content, dict):
+                            continue
+                        parts = content.get("parts")
+                        if not isinstance(parts, list):
+                            continue
+                        for part in parts:
+                            if not isinstance(part, dict):
+                                continue
+                            func_resp = part.get("function_response")
+                            if not isinstance(func_resp, dict):
+                                continue
+                            names.append(str(func_resp.get("name", "")))
+                messages = payload.get("messages")
+                if isinstance(messages, list):
+                    for msg in messages:
+                        if not isinstance(msg, dict):
+                            continue
+                        if msg.get("role") in {"tool", "function"}:
+                            names.append(str(msg.get("name", "")))
+        except Exception as exc:
+            astr_logger.debug("函数名预览失败: %s", exc)
+        return names
+
+    def _sanitize_payload(
+        self, call_args: Any, call_kwargs: Dict[str, Any], provider_id: str
+    ) -> None:
+        removed = 0
+        preview_payload = call_kwargs if call_kwargs else {}
+        if not preview_payload and call_args:
+            first = call_args[0]
+            if isinstance(first, dict):
+                preview_payload = first
+
+        names_before = self._peek_function_response_names(preview_payload)
+        if names_before:
+            astr_logger.debug(
+                "failover payload preview provider=%s function_response.names=%s",
+                provider_id,
+                names_before,
+            )
+
+        def _is_empty_name(value: Any) -> bool:
+            if value is None:
+                return True
+            if isinstance(value, str):
+                return value.strip() == ""
+            return False
+
+        def _sanitize_contents(contents: list) -> None:
+            nonlocal removed
+            new_contents = []
+            for content in contents:
+                if not isinstance(content, dict):
+                    new_contents.append(content)
+                    continue
+                parts = content.get("parts")
+                if not isinstance(parts, list):
+                    new_contents.append(content)
+                    continue
+                new_parts = []
+                for part in parts:
+                    if not isinstance(part, dict):
+                        new_parts.append(part)
+                        continue
+                    func_resp = part.get("function_response")
+                    if isinstance(func_resp, dict) and _is_empty_name(
+                        func_resp.get("name")
+                    ):
+                        removed += 1
+                        continue
+                    new_parts.append(part)
+                if new_parts:
+                    content = dict(content)
+                    content["parts"] = new_parts
+                    new_contents.append(content)
+                else:
+                    removed += 1
+            contents[:] = new_contents
+
+        def _sanitize_messages(messages: list) -> None:
+            nonlocal removed
+            new_messages = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    new_messages.append(msg)
+                    continue
+                if msg.get("role") in {"tool", "function"} and _is_empty_name(
+                    msg.get("name")
+                ):
+                    removed += 1
+                    continue
+                new_messages.append(msg)
+            messages[:] = new_messages
+
+        if isinstance(preview_payload, dict):
+            contents = preview_payload.get("contents")
+            if isinstance(contents, list):
+                _sanitize_contents(contents)
+            messages = preview_payload.get("messages")
+            if isinstance(messages, list):
+                _sanitize_messages(messages)
+
+        if removed:
+            astr_logger.warning(
+                "清理空的 function_response.name: provider=%s removed=%d",
+                provider_id,
+                removed,
+            )
+
     async def _execute_with_failover(self, primary, *args, **kwargs):
         plan = await self._build_failover_plan(primary)
         errors = []
@@ -516,6 +632,7 @@ class SilentProviderSwitcher(Star):
             call_kwargs = self._safe_clone(kwargs)
             if entry and entry.model:
                 call_kwargs["model"] = entry.model
+            self._sanitize_payload(call_args, call_kwargs, provider_id)
             start = self._now()
             try:
                 with self._provider_overrides(provider, entry):
@@ -576,6 +693,7 @@ class SilentProviderSwitcher(Star):
             call_kwargs = self._safe_clone(kwargs)
             if entry and entry.model:
                 call_kwargs["model"] = entry.model
+            self._sanitize_payload(call_args, call_kwargs, provider_id)
 
             emitted = False
             switch_to_next = False
