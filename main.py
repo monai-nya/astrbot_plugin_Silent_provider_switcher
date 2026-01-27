@@ -381,6 +381,17 @@ class SilentProviderSwitcher(Star):
             return str(kwargs["prompt"])[:80]
         return ""
 
+    def _log_timing(self, provider_id: str, elapsed: float, ok: bool) -> None:
+        if not self._should_log_switch():
+            return
+        status = "ok" if ok else "error"
+        astr_logger.info(
+            "Provider %s finished (%s) in %.2f s",
+            provider_id,
+            status,
+            elapsed,
+        )
+
     async def _execute_with_failover(self, primary, *args, **kwargs):
         plan = self._build_failover_plan(primary)
         errors = []
@@ -402,7 +413,9 @@ class SilentProviderSwitcher(Star):
                     provider, entry.base_url, entry.api_key
                 )
             try:
+                start = self._now()
                 result = await original_call(*args, **call_kwargs)
+                self._log_timing(provider_id, self._now() - start, True)
                 if self._is_error_response(result) or self._matches_error_keywords(result):
                     self._mark_cooldown(provider_id)
                     if index < len(plan) - 1:
@@ -416,6 +429,7 @@ class SilentProviderSwitcher(Star):
                     )
                 return result
             except Exception as exc:
+                self._log_timing(provider_id, self._now() - start, False)
                 if self._should_failover_exception(exc):
                     self._mark_cooldown(provider_id)
                     if index < len(plan) - 1:
@@ -464,6 +478,7 @@ class SilentProviderSwitcher(Star):
 
             emitted = False
             try:
+                start = self._now()
                 if original_stream:
                     async for chunk in original_stream(*args, **call_kwargs):
                         emitted = True
@@ -473,6 +488,7 @@ class SilentProviderSwitcher(Star):
                     emitted = True
                     yield result
 
+                self._log_timing(provider_id, self._now() - start, True)
                 if not is_primary and self._should_log_switch():
                     astr_logger.info(
                         "Switched to fallback provider(stream): %s (prompt=%s)",
@@ -481,6 +497,7 @@ class SilentProviderSwitcher(Star):
                     )
                 return
             except Exception as exc:
+                self._log_timing(provider_id, self._now() - start, False)
                 if emitted:
                     raise
                 if self._should_failover_exception(exc):
