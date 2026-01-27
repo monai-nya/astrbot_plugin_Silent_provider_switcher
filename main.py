@@ -31,6 +31,7 @@ class SilentProviderSwitcher(Star):
         super().__init__(context)
         self.config = config
         self._req_cache: Dict[int, _RequestSnapshot] = {}
+        self._wrapped_providers: set[str] = set()
 
     def _is_enabled(self) -> bool:
         return bool(self.config.get("enabled", True))
@@ -81,6 +82,57 @@ class SilentProviderSwitcher(Star):
             if fallback_id:
                 entries.append({"provider_id": fallback_id})
         return entries
+
+    def _snapshot_from_payload(
+        self,
+        provider_id: Optional[str],
+        args: tuple,
+        kwargs: Dict[str, Any],
+    ) -> _RequestSnapshot:
+        prompt = str(kwargs.get("prompt", "") or "")
+        if not prompt and args:
+            prompt = str(args[0] or "")
+        return _RequestSnapshot(
+            prompt=prompt,
+            contexts=list(kwargs.get("contexts", []) or []),
+            system_prompt=str(kwargs.get("system_prompt", "") or ""),
+            image_urls=list(kwargs.get("image_urls", []) or []),
+            func_tool_manager=kwargs.get("func_tool")
+            or kwargs.get("func_tool_manager"),
+            model=kwargs.get("model"),
+            provider_id=provider_id,
+        )
+
+    def _ensure_wrapped_provider(self, provider_id: Optional[str]) -> None:
+        if not provider_id:
+            return
+        if provider_id in self._wrapped_providers:
+            return
+        provider = self.context.get_provider_by_id(provider_id)
+        if not provider or not hasattr(provider, "text_chat"):
+            return
+        if getattr(provider, "_silent_provider_switcher_wrapped", False):
+            self._wrapped_providers.add(provider_id)
+            return
+
+        original = provider.text_chat
+
+        async def wrapped_text_chat(*args, **kwargs):
+            try:
+                return await original(*args, **kwargs)
+            except Exception:
+                if not self._is_enabled():
+                    raise
+                snapshot = self._snapshot_from_payload(provider_id, args, kwargs)
+                fallback_resp = await self._call_fallback(snapshot)
+                if fallback_resp and not self._is_error_response(fallback_resp):
+                    return fallback_resp
+                raise
+
+        provider.text_chat = wrapped_text_chat
+        setattr(provider, "_silent_provider_switcher_wrapped", True)
+        setattr(provider, "_silent_provider_switcher_original", original)
+        self._wrapped_providers.add(provider_id)
 
     def _make_key(self, event: AstrMessageEvent) -> int:
         return id(event)
@@ -198,7 +250,12 @@ class SilentProviderSwitcher(Star):
         for entry in fallbacks:
             provider_id = entry.get("provider_id", "")
             if snapshot.provider_id and snapshot.provider_id == provider_id:
-                continue
+                if not (
+                    entry.get("base_url")
+                    or entry.get("api_key")
+                    or entry.get("model")
+                ):
+                    continue
             provider = self.context.get_provider_by_id(provider_id)
             if not provider:
                 logger.warning("Fallback provider not found: %s", provider_id)
@@ -242,6 +299,9 @@ class SilentProviderSwitcher(Star):
             return
         if not self._get_fallback_entries():
             return
+        self._ensure_wrapped_provider(
+            getattr(req, "provider_id", None) or getattr(req, "chat_provider_id", None)
+        )
         key = self._make_key(event)
         snapshot = _RequestSnapshot(
             prompt=str(getattr(req, "prompt", "") or ""),
