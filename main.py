@@ -95,6 +95,9 @@ class SilentProviderSwitcher(Star):
     def _should_log_switch(self) -> bool:
         return bool(self.config.get("log_switch", True))
 
+    def _should_log_errors(self) -> bool:
+        return bool(self.config.get("log_errors", True))
+
     def _get_cooldown_seconds(self) -> int:
         raw = self.config.get("cooldown_seconds", 0)
         try:
@@ -465,6 +468,36 @@ class SilentProviderSwitcher(Star):
             elapsed,
         )
 
+    def _log_exception(
+        self, provider_id: str, exc: Exception, prompt_preview: str
+    ) -> None:
+        if not self._should_log_errors():
+            return
+        astr_logger.exception(
+            "Provider %s raised %s: %s (prompt=%s)",
+            provider_id,
+            type(exc).__name__,
+            exc,
+            prompt_preview or "[empty]",
+        )
+
+    def _log_error_response(
+        self, provider_id: str, resp: Any, prompt_preview: str
+    ) -> None:
+        if not self._should_log_errors():
+            return
+        err = getattr(resp, "error", None)
+        err_msg = getattr(resp, "error_message", None) or getattr(resp, "err", None)
+        text = getattr(resp, "completion_text", None)
+        astr_logger.error(
+            "Provider %s returned error response: error=%s err=%s text=%s (prompt=%s)",
+            provider_id,
+            err,
+            err_msg,
+            (text[:200] if isinstance(text, str) else text),
+            prompt_preview or "[empty]",
+        )
+
     def _safe_clone(self, obj: Any, memo: Optional[Dict[int, Any]] = None) -> Any:
         if memo is None:
             memo = {}
@@ -641,6 +674,7 @@ class SilentProviderSwitcher(Star):
                 if self._is_error_response(result) or self._matches_error_keywords(
                     result
                 ):
+                    self._log_error_response(provider_id, result, prompt_preview)
                     await self._mark_cooldown(provider_id)
                     if index < len(plan) - 1:
                         errors.append((provider_id, RuntimeError("LLM error response")))
@@ -654,6 +688,7 @@ class SilentProviderSwitcher(Star):
                 return result
             except Exception as exc:
                 self._log_timing(provider_id, self._now() - start, False)
+                self._log_exception(provider_id, exc, prompt_preview)
                 if self._should_failover_exception(exc):
                     await self._mark_cooldown(provider_id)
                     if index < len(plan) - 1:
@@ -706,6 +741,9 @@ class SilentProviderSwitcher(Star):
                                 if self._is_error_response(
                                     chunk
                                 ) or self._matches_error_keywords(chunk):
+                                    self._log_error_response(
+                                        provider_id, chunk, prompt_preview
+                                    )
                                     await self._mark_cooldown(provider_id)
                                     if index < len(plan) - 1:
                                         errors.append(
@@ -729,6 +767,9 @@ class SilentProviderSwitcher(Star):
                         if self._is_error_response(
                             result
                         ) or self._matches_error_keywords(result):
+                            self._log_error_response(
+                                provider_id, result, prompt_preview
+                            )
                             await self._mark_cooldown(provider_id)
                             if index < len(plan) - 1:
                                 errors.append(
@@ -752,6 +793,7 @@ class SilentProviderSwitcher(Star):
                 return
             except Exception as exc:
                 self._log_timing(provider_id, self._now() - start, False)
+                self._log_exception(provider_id, exc, prompt_preview)
                 if emitted:
                     raise
                 if self._should_failover_exception(exc):
