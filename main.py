@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import re
 import time
 import types
 import weakref
@@ -15,12 +16,19 @@ from astrbot.api.star import Context, Star, register
 
 try:
     from astrbot.core.provider.entities import LLMResponse, ProviderType
-except Exception:
+except ImportError:
     from astrbot.api.provider import LLMResponse
 
     ProviderType = None
 
+_MAX_RECURSION_DEPTH = 10
+_SENSITIVE_PATTERN = re.compile(
+    r'(sk-|key-|token-|bearer\s+)[a-zA-Z0-9\-_]{4,}',
+    re.IGNORECASE,
+)
+
 MAX_FALLBACK_ENTRIES = 3
+_COOLDOWN_CLEANUP_THRESHOLD = 50
 FAILOVER_STATUS_CODES = {
     401,
     402,
@@ -81,6 +89,7 @@ class SilentProviderSwitcher(Star):
         self._cooldowns: Dict[str, float] = {}
         self._wrap_lock = asyncio.Lock()
         self._cooldown_lock = asyncio.Lock()
+        self._provider_locks: Dict[str, asyncio.Lock] = {}
 
     async def initialize(self):
         await self._install_provider_failover()
@@ -132,6 +141,14 @@ class SilentProviderSwitcher(Star):
             return
         async with self._cooldown_lock:
             self._cooldowns[provider_id] = self._now()
+            if len(self._cooldowns) > _COOLDOWN_CLEANUP_THRESHOLD:
+                now = self._now()
+                expired = [
+                    k for k, v in self._cooldowns.items()
+                    if now - v >= cooldown
+                ]
+                for k in expired:
+                    self._cooldowns.pop(k, None)
 
     def _get_error_keywords(self) -> Iterable[str]:
         raw = str(self.config.get("error_keywords", "")).strip()
@@ -232,9 +249,22 @@ class SilentProviderSwitcher(Star):
     def _get_all_chat_providers(self) -> List[Any]:
         return self._filter_chat_providers(self._get_all_providers())
 
-    def _flatten_providers(self, obj: Any) -> List[Any]:
+    def _flatten_providers(
+        self, obj: Any, _depth: int = 0, _seen: Optional[Set[int]] = None
+    ) -> List[Any]:
         if not obj:
             return []
+        if _depth > _MAX_RECURSION_DEPTH:
+            astr_logger.warning(
+                "_flatten_providers 递归深度超限 (%d)，停止递归。", _depth
+            )
+            return []
+        if _seen is None:
+            _seen = set()
+        obj_id = id(obj)
+        if obj_id in _seen:
+            return []
+        _seen.add(obj_id)
         if isinstance(obj, dict):
             return [v for v in obj.values() if v]
         if isinstance(obj, (list, tuple, set)):
@@ -242,13 +272,17 @@ class SilentProviderSwitcher(Star):
         for attr in PROVIDER_CONTAINER_ATTRS:
             if hasattr(obj, attr):
                 try:
-                    return self._flatten_providers(getattr(obj, attr))
+                    return self._flatten_providers(
+                        getattr(obj, attr), _depth + 1, _seen
+                    )
                 except Exception as exc:
                     astr_logger.debug("读取 %s.%s 失败: %s", type(obj), attr, exc)
         for method in ("get_all_providers", "list_providers", "get_providers"):
             if hasattr(obj, method):
                 try:
-                    return self._flatten_providers(getattr(obj, method)())
+                    return self._flatten_providers(
+                        getattr(obj, method)(), _depth + 1, _seen
+                    )
                 except Exception as exc:
                     astr_logger.debug("调用 %s.%s 失败: %s", type(obj), method, exc)
         return []
@@ -298,6 +332,11 @@ class SilentProviderSwitcher(Star):
         )
         haystack = " ".join(parts).lower()
         return any(keyword.lower() in haystack for keyword in keywords)
+
+    def _get_provider_lock(self, provider_id: str) -> asyncio.Lock:
+        if provider_id not in self._provider_locks:
+            self._provider_locks[provider_id] = asyncio.Lock()
+        return self._provider_locks[provider_id]
 
     def _apply_provider_overrides(
         self, provider: Any, base_url: str, api_key: str
@@ -355,6 +394,10 @@ class SilentProviderSwitcher(Star):
             yield
         finally:
             self._restore_provider_overrides(provider, restores)
+
+    def _sanitize_log_text(self, text: str) -> str:
+        """Remove potential secrets from log output."""
+        return _SENSITIVE_PATTERN.sub(r'\1***', text)
 
     async def _build_failover_plan(self, primary: Any):
         plan = []
@@ -427,13 +470,16 @@ class SilentProviderSwitcher(Star):
         if getattr(provider, "_silent_provider_switcher_stream_wrapped", False):
             return
 
-        async def stream_wrapper(p_self, *args, **kwargs):
-            async for chunk in self._execute_stream_with_failover(
-                p_self, *args, **kwargs
+        _switcher = self
+        _bound_provider = provider
+
+        async def stream_wrapper(*args, **kwargs):
+            async for chunk in _switcher._execute_stream_with_failover(
+                _bound_provider, *args, **kwargs
             ):
                 yield chunk
 
-        provider.text_chat_stream = types.MethodType(stream_wrapper, provider)
+        provider.text_chat_stream = stream_wrapper
         provider._silent_provider_switcher_stream_wrapped = True
 
     async def _install_provider_failover(self):
@@ -451,11 +497,12 @@ class SilentProviderSwitcher(Star):
                 self._mark_wrapped(provider)
 
     def _get_prompt_preview(self, args: tuple, kwargs: dict) -> str:
+        raw = ""
         if args:
-            return str(args[0])[:80]
-        if "prompt" in kwargs:
-            return str(kwargs["prompt"])[:80]
-        return ""
+            raw = str(args[0])[:80]
+        elif "prompt" in kwargs:
+            raw = str(kwargs["prompt"])[:80]
+        return self._sanitize_log_text(raw) if raw else ""
 
     def _log_timing(self, provider_id: str, elapsed: float, ok: bool) -> None:
         if not self._should_log_switch():
@@ -498,7 +545,14 @@ class SilentProviderSwitcher(Star):
             prompt_preview or "[empty]",
         )
 
-    def _safe_clone(self, obj: Any, memo: Optional[Dict[int, Any]] = None) -> Any:
+    def _safe_clone(
+        self, obj: Any, memo: Optional[Dict[int, Any]] = None, _depth: int = 0
+    ) -> Any:
+        if _depth > _MAX_RECURSION_DEPTH:
+            astr_logger.debug(
+                "_safe_clone 递归深度超限 (%d)，返回原对象。", _depth
+            )
+            return obj
         if memo is None:
             memo = {}
         obj_id = id(obj)
@@ -514,21 +568,27 @@ class SilentProviderSwitcher(Star):
                 cloned_dict: Dict[Any, Any] = {}
                 memo[obj_id] = cloned_dict
                 for key, value in obj.items():
-                    cloned_dict[self._safe_clone(key, memo)] = self._safe_clone(
-                        value, memo
-                    )
+                    cloned_dict[
+                        self._safe_clone(key, memo, _depth + 1)
+                    ] = self._safe_clone(value, memo, _depth + 1)
                 return cloned_dict
             if isinstance(obj, list):
                 cloned_list: List[Any] = []
                 memo[obj_id] = cloned_list
-                cloned_list.extend(self._safe_clone(value, memo) for value in obj)
+                cloned_list.extend(
+                    self._safe_clone(value, memo, _depth + 1) for value in obj
+                )
                 return cloned_list
             if isinstance(obj, tuple):
-                cloned_tuple = tuple(self._safe_clone(value, memo) for value in obj)
+                cloned_tuple = tuple(
+                    self._safe_clone(value, memo, _depth + 1) for value in obj
+                )
                 memo[obj_id] = cloned_tuple
                 return cloned_tuple
             if isinstance(obj, set):
-                cloned_set = {self._safe_clone(value, memo) for value in obj}
+                cloned_set = {
+                    self._safe_clone(value, memo, _depth + 1) for value in obj
+                }
                 memo[obj_id] = cloned_set
                 return cloned_set
             return obj
@@ -666,10 +726,12 @@ class SilentProviderSwitcher(Star):
             if entry and entry.model:
                 call_kwargs["model"] = entry.model
             self._sanitize_payload(call_args, call_kwargs, provider_id)
+            provider_lock = self._get_provider_lock(provider_id)
             start = self._now()
             try:
-                with self._provider_overrides(provider, entry):
-                    result = await original_call(*call_args, **call_kwargs)
+                async with provider_lock:
+                    with self._provider_overrides(provider, entry):
+                        result = await original_call(*call_args, **call_kwargs)
                 self._log_timing(provider_id, self._now() - start, True)
                 if self._is_error_response(result) or self._matches_error_keywords(
                     result
@@ -729,12 +791,14 @@ class SilentProviderSwitcher(Star):
             if entry and entry.model:
                 call_kwargs["model"] = entry.model
             self._sanitize_payload(call_args, call_kwargs, provider_id)
+            provider_lock = self._get_provider_lock(provider_id)
 
             emitted = False
             switch_to_next = False
             start = self._now()
             try:
-                with self._provider_overrides(provider, entry):
+                async with provider_lock:
+                  with self._provider_overrides(provider, entry):
                     if original_stream:
                         async for chunk in original_stream(*call_args, **call_kwargs):
                             if not emitted:
@@ -795,6 +859,10 @@ class SilentProviderSwitcher(Star):
                 self._log_timing(provider_id, self._now() - start, False)
                 self._log_exception(provider_id, exc, prompt_preview)
                 if emitted:
+                    astr_logger.warning(
+                        "流已开始输出，无法回退到下一个 provider: %s",
+                        provider_id,
+                    )
                     raise
                 if self._should_failover_exception(exc):
                     await self._mark_cooldown(provider_id)

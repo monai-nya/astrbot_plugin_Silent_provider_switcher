@@ -21,7 +21,7 @@
     "default": ""
   },
   "fallback_api_key_1": {
-    "type": "string",
+    "type": "password",
     "description": "备用提供商 1 的 api_key（可不填）",
     "default": ""
   },
@@ -42,7 +42,7 @@
     "default": ""
   },
   "fallback_api_key_2": {
-    "type": "string",
+    "type": "password",
     "description": "备用提供商 2 的 api_key（可不填）",
     "default": ""
   },
@@ -63,7 +63,7 @@
     "default": ""
   },
   "fallback_api_key_3": {
-    "type": "string",
+    "type": "password",
     "description": "备用提供商 3 的 api_key（可不填）",
     "default": ""
   },
@@ -74,7 +74,7 @@
   },
   "error_keywords": {
     "type": "text",
-    "description": "额外视为失败的关键词（每行一个，大小写不敏感）",
+    "description": "额外视为失败的关键词（每行一个或逗号分隔，大小写不敏感）",
     "default": ""
   },
   "log_switch": {
